@@ -367,6 +367,12 @@ type JwtAuthenticationSpec struct {
 	// +optional
 	IssuerUrl string `json:"issuerUrl"`
 
+	// URL of the JSON Web Key Set (JWKS) endpoint.
+	// If omitted, Authorino will attempt to discover the JWKS URL using the OpenID Connect Well-Known Discovery
+	// endpoint derived from the `issuerUrl`.
+	// +optional
+	JWKSUrl string `json:"jwksUrl"`
+
 	// Decides how long to wait before refreshing the JWKS (in seconds).
 	// If omitted, Authorino will never refresh the JWKS.
 	// +optional

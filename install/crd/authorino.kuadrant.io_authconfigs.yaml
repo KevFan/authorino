@@ -2542,6 +2542,12 @@ spec:
                             the "jkws_uri" claim from.
                             The value must coincide with the value of  the "iss" (issuer) claim of the discovered OpenID Connect configuration.
                           type: string
+                        jwksUrl:
+                          description: |-
+                            URL of the JSON Web Key Set (JWKS) endpoint.
+                            If omitted, Authorino will attempt to discover the JWKS URL using the OpenID Connect Well-Known Discovery
+                            endpoint derived from the `issuerUrl`.
+                          type: string
                         ttl:
                           description: |-
                             Decides how long to wait before refreshing the JWKS (in seconds).
