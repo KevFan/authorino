@@ -10,7 +10,7 @@ import (
 	"github.com/kuadrant/authorino/pkg/log"
 	"github.com/kuadrant/authorino/pkg/workers"
 
-	goidc "github.com/coreos/go-oidc"
+	goidc "github.com/coreos/go-oidc/v3/oidc"
 )
 
 const (
