@@ -249,7 +249,7 @@ func (r *AuthConfigReconciler) translateAuthConfig(ctx context.Context, authConf
 
 		// oidc
 		case api.JwtAuthentication:
-			translatedIdentity.OIDC = identity_evaluators.NewOIDC(identity.Jwt.IssuerUrl, authCred, identity.Jwt.TTL, ctxWithLogger)
+			translatedIdentity.OIDC = identity_evaluators.NewOIDC(identity.Jwt.IssuerUrl, identity.Jwt.IssuerUrl, authCred, identity.Jwt.TTL, ctxWithLogger)
 
 		// apiKey
 		case api.ApiKeyAuthentication:

@@ -23,18 +23,25 @@ const (
 type OIDC struct {
 	auth.AuthCredentials
 	Endpoint  string `yaml:"endpoint"`
+	JwksUrl   string `yaml:"jwksUrl"`
 	provider  *goidc.Provider
+	keySet    goidc.KeySet
 	refresher workers.Worker
 }
 
-func NewOIDC(endpoint string, creds auth.AuthCredentials, ttl int, ctx gocontext.Context) *OIDC {
+func NewOIDC(endpoint, jwksUrl string, creds auth.AuthCredentials, ttl int, ctx gocontext.Context) *OIDC {
 	oidc := &OIDC{
 		AuthCredentials: creds,
 		Endpoint:        endpoint,
 	}
 	ctxWithLogger := log.IntoContext(ctx, log.FromContext(ctx).WithName("oidc"))
-	_ = oidc.getProvider(ctxWithLogger, false)
-	oidc.configureProviderRefresh(ttl, ctxWithLogger)
+	if jwksUrl != "" {
+		oidc.keySet = goidc.NewRemoteKeySet(ctxWithLogger, oidc.JwksUrl)
+		oidc.configureKeySetRefresh(ttl, ctxWithLogger)
+	} else {
+		_ = oidc.getProvider(ctxWithLogger, false)
+		oidc.configureProviderRefresh(ttl, ctxWithLogger)
+	}
 	return oidc
 }
 
@@ -88,18 +95,21 @@ func (oidc *OIDC) decodeAndVerifyToken(accessToken string, ctx gocontext.Context
 }
 
 func (oidc *OIDC) verifyToken(accessToken string, ctx gocontext.Context) (*goidc.IDToken, error) {
-	provider := oidc.getProvider(ctx, false)
+	tokenVerifierConfig := &goidc.Config{SkipClientIDCheck: true, SkipIssuerCheck: true}
 
+	// Manual JWKS
+	if oidc.keySet != nil {
+		verifier := goidc.NewVerifier(oidc.Endpoint, oidc.keySet, tokenVerifierConfig)
+		return verifier.Verify(ctx, accessToken)
+	}
+
+	// Otherwise, use the OIDC provider's Verifier (discovery mode)
+	provider := oidc.getProvider(ctx, false)
 	if provider == nil {
 		return nil, fmt.Errorf(msg_oidcProviderConfigMissingError)
 	}
 
-	tokenVerifierConfig := &goidc.Config{SkipClientIDCheck: true, SkipIssuerCheck: true}
-	if idToken, err := provider.Verifier(tokenVerifierConfig).Verify(ctx, accessToken); err != nil {
-		return nil, err
-	} else {
-		return idToken, nil
-	}
+	return provider.Verifier(tokenVerifierConfig).Verify(ctx, accessToken)
 }
 
 func (oidc *OIDC) GetURL(name string, ctx gocontext.Context) (*url.URL, error) {
@@ -122,6 +132,25 @@ func (oidc *OIDC) configureProviderRefresh(ttl int, ctx gocontext.Context) {
 
 	if err != nil {
 		log.FromContext(ctx).V(1).Info(msg_oidcProviderConfigRefreshDisabled, "reason", err)
+	}
+}
+
+func (oidc *OIDC) configureKeySetRefresh(ttl int, ctx gocontext.Context) {
+	if oidc.keySet == nil {
+		// No manual JWKS configured, nothing to refresh here
+		return
+	}
+
+	var err error
+
+	oidc.refresher, err = workers.StartWorker(ctx, ttl, func() {
+		// Recreate keySet to refresh JWKS keys
+		oidc.keySet = goidc.NewRemoteKeySet(ctx, oidc.JwksUrl)
+		log.FromContext(ctx).V(1).Info("manual JWKS refreshed", "jwks_url", oidc.JwksUrl)
+	})
+
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("manual JWKS refresh disabled", "reason", err)
 	}
 }
 

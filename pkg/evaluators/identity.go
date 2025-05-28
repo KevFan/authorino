@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// TODO: JWKS
 const (
 	identityOAuth2     = "IDENTITY_OAUTH2"
 	identityOIDC       = "IDENTITY_OIDC"
