@@ -8,4 +8,22 @@ layout:
 - go.kubebuilder.io/v4
 projectName: authorino
 repo: github.com/kuadrant/authorino
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: authorino.kuadrant.io
+  group: authconfig
+  kind: AuthConfig
+  path: github.com/kuadrant/authorino/api/v1beta2
+  version: v1beta2
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: authorino.kuadrant.io
+  group: authconfig
+  kind: AuthConfig
+  path: github.com/kuadrant/authorino/api/v1beta3
+  version: v1beta3
 version: "3"

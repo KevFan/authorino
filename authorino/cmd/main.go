@@ -36,6 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	authconfigv1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authconfigv1beta3 "github.com/kuadrant/authorino/api/v1beta3"
+	"github.com/kuadrant/authorino/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -47,6 +51,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(authconfigv1beta2.AddToScheme(scheme))
+	utilruntime.Must(authconfigv1beta3.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -198,6 +204,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.AuthConfigReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AuthConfig")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

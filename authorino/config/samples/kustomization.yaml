@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- authconfig_v1beta2_authconfig.yaml
+- authconfig_v1beta3_authconfig.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
