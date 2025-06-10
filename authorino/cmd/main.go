@@ -39,7 +39,7 @@ import (
 
 	authconfigv1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	authconfigv1beta3 "github.com/kuadrant/authorino/api/v1beta3"
-	"github.com/kuadrant/authorino/internal/controller"
+	"github.com/kuadrant/authorino/internal/controllers"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -204,7 +204,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.AuthConfigReconciler{
+	if err := (&controllers.AuthConfigReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
