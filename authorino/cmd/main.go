@@ -1,5 +1,5 @@
 /*
-Copyright 2025.
+Copyright 2020 Red Hat, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,230 +17,551 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"crypto/sha256"
 	"crypto/tls"
-	"flag"
+	"encoding/hex"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
-	"path/filepath"
+	"time"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	authconfigv1beta2 "github.com/kuadrant/authorino/api/v1beta2"
-	authconfigv1beta3 "github.com/kuadrant/authorino/api/v1beta3"
+	"github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/kuadrant/authorino/api/v1beta3"
 	"github.com/kuadrant/authorino/internal/controllers"
+	"github.com/kuadrant/authorino/internal/evaluators"
+	"github.com/kuadrant/authorino/internal/health"
+	"github.com/kuadrant/authorino/internal/index"
+	"github.com/kuadrant/authorino/internal/log"
+	"github.com/kuadrant/authorino/internal/metrics"
+	"github.com/kuadrant/authorino/internal/service"
+	"github.com/kuadrant/authorino/internal/trace"
+	"github.com/kuadrant/authorino/internal/utils"
+
+	envoy_auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
+	"github.com/go-logr/logr"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	otel_grpc "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	otel_http "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	otel_propagation "go.opentelemetry.io/otel/propagation"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	// +kubebuilder:scaffold:imports
 )
 
+const (
+	gRPCMaxConcurrentStreams = 10000
+	leaderElectionIDSuffix   = "authorino.kuadrant.io"
+)
+
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	// ldflags
+	version string
+	dirty   string
+	gitSHA  string
+
+	scheme = runtime.NewScheme()
+	logger logr.Logger
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(authconfigv1beta2.AddToScheme(scheme))
-	utilruntime.Must(authconfigv1beta3.AddToScheme(scheme))
-	// +kubebuilder:scaffold:scheme
+	utilruntime.Must(v1beta2.AddToScheme(scheme))
+	utilruntime.Must(v1beta3.AddToScheme(scheme))
 }
 
-// nolint:gocyclo
+type logOptions struct {
+	level string
+	mode  string
+}
+
+type telemetryOptions struct {
+	tracingServiceEndpoint string
+	tracingServiceInsecure bool
+	tracingServiceTags     []string
+}
+
+type commonServerOptions struct {
+	log             logOptions
+	metricsAddr     string
+	healthProbeAddr string
+	telemetry       telemetryOptions
+}
+
+type authServerOptions struct {
+	commonServerOptions
+	watchNamespace                 string
+	watchedAuthConfigLabelSelector string
+	watchedSecretLabelSelector     string
+	allowSupersedingHostSubsets    bool
+	timeout                        int
+	extAuthGRPCPort                int
+	extAuthHTTPPort                int
+	tlsCertPath                    string
+	tlsCertKeyPath                 string
+	oidcHTTPPort                   int
+	oidcTLSCertPath                string
+	oidcTLSCertKeyPath             string
+	evaluatorCacheSize             int
+	deepMetricsEnabled             bool
+	webhookServicePort             int
+	enableLeaderElection           bool
+	maxHttpRequestBodySize         int64
+}
+
+type webhookServerOptions struct {
+	commonServerOptions
+	port int
+}
+
+type keyAuthServerOptions struct{}
+type keyWebhookServerOptions struct{}
+
 func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
-		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
-		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
-		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	opts := zap.Options{
-		Development: true,
+	authServerOpts := &authServerOptions{}
+	webhookServerOpts := &webhookServerOptions{}
+
+	cmdRoot := rootCmd()
+
+	cmdRoot.AddCommand(
+		authServerCmd(authServerOpts),
+		webhookServerCmd(webhookServerOpts),
+		versionCmd(),
+	)
+
+	ctx := context.WithValue(context.TODO(), keyAuthServerOptions{}, authServerOpts)
+	ctx = context.WithValue(ctx, keyWebhookServerOptions{}, webhookServerOpts)
+
+	if err := cmdRoot.ExecuteContext(ctx); err != nil {
+		fmt.Println("error: ", err)
+		os.Exit(1)
 	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
+}
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+func rootCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "authorino",
+		Short: "Authorino is a Kubernetes-native authorization server.",
+	}
+}
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
-	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("disabling http/2")
-		c.NextProtos = []string{"http/1.1"}
+func authServerCmd(opts *authServerOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "server",
+		Short: "Runs the authorization server",
+		Run:   runAuthorizationServer,
 	}
 
-	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, disableHTTP2)
+	cmd.PersistentFlags().StringVar(&opts.watchNamespace, "watch-namespace", utils.EnvVar("WATCH_NAMESPACE", ""), "Kubernetes namespace to watch")
+	cmd.PersistentFlags().StringVar(&opts.watchedAuthConfigLabelSelector, "auth-config-label-selector", utils.EnvVar("AUTH_CONFIG_LABEL_SELECTOR", ""), "Kubernetes label selector to filter AuthConfig resources to watch")
+	cmd.PersistentFlags().StringVar(&opts.watchedSecretLabelSelector, "secret-label-selector", utils.EnvVar("SECRET_LABEL_SELECTOR", "authorino.kuadrant.io/managed-by=authorino"), "Kubernetes label selector to filter Secret resources to watch")
+	cmd.PersistentFlags().BoolVar(&opts.allowSupersedingHostSubsets, "allow-superseding-host-subsets", false, "Enable AuthConfigs to supersede strict host subsets of supersets already taken")
+	cmd.PersistentFlags().IntVar(&opts.timeout, "timeout", utils.EnvVar("TIMEOUT", 0), "Server timeout - in milliseconds")
+	cmd.PersistentFlags().IntVar(&opts.extAuthGRPCPort, "ext-auth-grpc-port", utils.EnvVar("EXT_AUTH_GRPC_PORT", 50051), "Port number of authorization server - gRPC interface")
+	cmd.PersistentFlags().IntVar(&opts.extAuthHTTPPort, "ext-auth-http-port", utils.EnvVar("EXT_AUTH_HTTP_PORT", 5001), "Port number of authorization server - raw HTTP interface")
+	cmd.PersistentFlags().StringVar(&opts.tlsCertPath, "tls-cert", utils.EnvVar("TLS_CERT", ""), "Path to the public TLS server certificate file in the file system - authorization server")
+	cmd.PersistentFlags().StringVar(&opts.tlsCertKeyPath, "tls-cert-key", utils.EnvVar("TLS_CERT_KEY", ""), "Path to the private TLS server certificate key file in the file system - authorization server")
+	cmd.PersistentFlags().IntVar(&opts.oidcHTTPPort, "oidc-http-port", utils.EnvVar("OIDC_HTTP_PORT", 8083), "Port number of OIDC Discovery server for Festival Wristband tokens")
+	cmd.PersistentFlags().StringVar(&opts.oidcTLSCertPath, "oidc-tls-cert", utils.EnvVar("OIDC_TLS_CERT", ""), "Path to the public TLS server certificate file in the file system - Festival Wristband OIDC Discovery server")
+	cmd.PersistentFlags().StringVar(&opts.oidcTLSCertKeyPath, "oidc-tls-cert-key", utils.EnvVar("OIDC_TLS_CERT_KEY", ""), "Path to the private TLS server certificate key file in the file system - Festival Wristband OIDC Discovery server")
+	cmd.PersistentFlags().IntVar(&opts.evaluatorCacheSize, "evaluator-cache-size", utils.EnvVar("EVALUATOR_CACHE_SIZE", 1), "Cache size of each Authorino evaluator if enabled in the AuthConfig - in megabytes")
+	cmd.PersistentFlags().BoolVar(&opts.deepMetricsEnabled, "deep-metrics-enabled", utils.EnvVar("DEEP_METRICS_ENABLED", false), "Enable deep metrics at the level of each evaluator when requested in the AuthConfig, exported by the metrics server")
+	cmd.PersistentFlags().IntVar(&opts.webhookServicePort, "webhook-service-port", 9443, "Port number of the webhook server")
+	cmd.PersistentFlags().BoolVar(&opts.enableLeaderElection, "enable-leader-election", false, "Enable leader election for status updater - ensures only one instance of Authorino tries to update the status of reconciled resources")
+	cmd.PersistentFlags().Int64Var(&opts.maxHttpRequestBodySize, "max-http-request-body-size", utils.EnvVar("MAX_HTTP_REQUEST_BODY_SIZE", int64(8192)), "Maximum size of the body of requests accepted in the raw HTTP interface of the authorization server - in bytes")
+	registerCommonServerOptions(cmd, &opts.commonServerOptions)
+
+	return cmd
+}
+
+func webhookServerCmd(opts *webhookServerOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "webhooks",
+		Short: "Runs the webhook server",
+		Run:   runWebhookServer,
 	}
 
-	// Create watchers for metrics and webhooks certificates
-	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
+	cmd.PersistentFlags().IntVar(&opts.port, "port", 9443, "Port number of the webhook server")
+	registerCommonServerOptions(cmd, &opts.commonServerOptions)
 
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
+	return cmd
+}
 
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
-
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
-		}
-
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
-		})
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Prints the Authorino version info",
+		Run:   printVersion,
 	}
+}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
+func registerCommonServerOptions(cmd *cobra.Command, opts *commonServerOptions) {
+	cmd.PersistentFlags().StringVar(&opts.log.level, "log-level", utils.EnvVar("LOG_LEVEL", "info"), "Log level")
+	cmd.PersistentFlags().StringVar(&opts.log.mode, "log-mode", utils.EnvVar("LOG_MODE", "production"), "Log mode")
+	cmd.PersistentFlags().StringVar(&opts.metricsAddr, "metrics-addr", ":8080", "The network address the metrics endpoint binds to")
+	cmd.PersistentFlags().StringVar(&opts.healthProbeAddr, "health-probe-addr", ":8081", "The network address the health probe endpoint binds to")
+	cmd.PersistentFlags().StringVar(&opts.telemetry.tracingServiceEndpoint, "tracing-service-endpoint", "", "Endpoint URL of the tracing exporter service - use either 'rpc://' or 'http://' scheme")
+	cmd.PersistentFlags().BoolVar(&opts.telemetry.tracingServiceInsecure, "tracing-service-insecure", false, "Disable TLS for the tracing service connection")
+	cmd.PersistentFlags().StringArrayVar(&opts.telemetry.tracingServiceTags, "tracing-service-tag", []string{}, "Fixed key=value tag to add to emitted traces")
+}
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
-		TLSOpts:       tlsOpts,
-	}
+func runAuthorizationServer(cmd *cobra.Command, _ []string) {
+	opts := cmd.Context().Value(keyAuthServerOptions{}).(*authServerOptions)
 
-	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/metrics/filters#WithAuthenticationAndAuthorization
-		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
-	}
+	setup(cmd, opts.log, opts.telemetry)
 
-	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+	// global options
+	evaluators.EvaluatorCacheSize = opts.evaluatorCacheSize
+	metrics.DeepMetricsEnabled = opts.deepMetricsEnabled
 
-		var err error
-		metricsCertWatcher, err = certwatcher.New(
-			filepath.Join(metricsCertPath, metricsCertName),
-			filepath.Join(metricsCertPath, metricsCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
-			os.Exit(1)
-		}
+	// creates the index of authconfigs
+	index := index.NewIndex()
 
-		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
-			config.GetCertificate = metricsCertWatcher.GetCertificate
-		})
-	}
+	// starts authorization server
+	startExtAuthServerGRPC(index, *opts)
+	startExtAuthServerHTTP(index, *opts)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	// starts the oidc discovery server
+	startOIDCServer(index, *opts)
+
+	baseManagerOptions := ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "e8919fea.authorino.kuadrant.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
+		WebhookServer:          webhook.NewServer(webhook.Options{Port: opts.webhookServicePort}),
+		Metrics:                metricsserver.Options{BindAddress: opts.metricsAddr},
+		HealthProbeBindAddress: opts.healthProbeAddr,
+		LeaderElection:         false,
+	}
+	if opts.watchNamespace != "" {
+		baseManagerOptions.Cache.DefaultNamespaces = map[string]cache.Config{opts.watchNamespace: {}}
+	}
+
+	// sets up the reconciliation manager
+	mgr, err := setupManager(baseManagerOptions)
+	if err != nil {
+		logger.Error(err, "failed to setup reconciliation manager")
+		os.Exit(1)
+	}
+
+	statusReport := controllers.NewStatusReportMap()
+	controllerLogger := log.WithName("controller-runtime").WithName("manager").WithName("controller")
+
+	// sets up the authconfig reconciler
+	authConfigReconciler := &controllers.AuthConfigReconciler{
+		Client:                      mgr.GetClient(),
+		Index:                       index,
+		AllowSupersedingHostSubsets: opts.allowSupersedingHostSubsets,
+		StatusReport:                statusReport,
+		Logger:                      controllerLogger.WithName("authconfig"),
+		Scheme:                      mgr.GetScheme(),
+		LabelSelector:               controllers.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
+		Namespace:                   opts.watchNamespace,
+	}
+	if err = authConfigReconciler.SetupWithManager(mgr); err != nil {
+		logger.Error(err, "failed to setup controller", "controller", "authconfig")
+		os.Exit(1)
+	}
+
+	// authconfig readiness check
+	readinessCheck := health.NewHandler(controllers.AuthConfigsReadyzSubpath, health.Observe(authConfigReconciler))
+	if err := mgr.AddReadyzCheck(controllers.AuthConfigsReadyzSubpath, readinessCheck.HandleReadyzCheck); err != nil {
+		logger.Error(err, "failed to setup reconciliation readiness check")
+		os.Exit(1)
+	}
+
+	// sets up the secret reconciler
+	if err = (&controllers.SecretReconciler{
+		Client:        mgr.GetClient(),
+		Logger:        controllerLogger.WithName("secret"),
+		Scheme:        mgr.GetScheme(),
+		Index:         index,
+		LabelSelector: controllers.ToLabelSelector(opts.watchedSecretLabelSelector),
+		Namespace:     opts.watchNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		logger.Error(err, "failed to setup controller", "controller", "secret")
+		os.Exit(1)
+	}
+
+	// starts the reconciliation manager
+	signalHandler := ctrl.SetupSignalHandler()
+	logger.Info("starting reconciliation manager")
+	go func() {
+		if err := mgr.Start(signalHandler); err != nil {
+			logger.Error(err, "failed to start reconciliation manager")
+			os.Exit(1)
+		}
+	}()
+
+	// sets up the status update manager
+	leaderElectionId := sha256.Sum256([]byte(opts.watchedAuthConfigLabelSelector))
+	statusUpdaterOptions := baseManagerOptions
+	statusUpdaterOptions.Metrics.BindAddress = "0"    // disabled so it does not clash with the reconciliation manager
+	statusUpdaterOptions.HealthProbeBindAddress = "0" // disabled so it does not clash with the reconciliation manager
+	statusUpdaterOptions.LeaderElection = opts.enableLeaderElection
+	statusUpdaterOptions.LeaderElectionID = fmt.Sprintf("%v.%v", hex.EncodeToString(leaderElectionId[:4]), leaderElectionIDSuffix)
+	statusUpdateManager, err := setupManager(statusUpdaterOptions)
+	if err != nil {
+		logger.Error(err, "failed to setup status update manager")
+		os.Exit(1)
+	}
+
+	// sets up the authconfig status update controller
+	if err = (&controllers.AuthConfigStatusUpdater{
+		Client:        statusUpdateManager.GetClient(),
+		Logger:        controllerLogger.WithName("authconfig").WithName("statusupdater"),
+		StatusReport:  statusReport,
+		LabelSelector: controllers.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
+	}).SetupWithManager(statusUpdateManager); err != nil {
+		logger.Error(err, "failed to create controller", "controller", "authconfigstatusupdate")
+	}
+
+	// starts the status update manager
+	logger.Info("starting status update manager")
+	if err := statusUpdateManager.Start(signalHandler); err != nil {
+		logger.Error(err, "failed to start status update manager")
+		os.Exit(1)
+	}
+}
+
+func runWebhookServer(cmd *cobra.Command, _ []string) {
+	opts := cmd.Context().Value(keyWebhookServerOptions{}).(*webhookServerOptions)
+
+	setup(cmd, opts.log, opts.telemetry)
+
+	// sets up the webhook manager
+	mgr, err := setupManager(ctrl.Options{
+		Scheme:                 scheme,
+		Metrics:                metricsserver.Options{BindAddress: opts.metricsAddr},
+		HealthProbeBindAddress: opts.healthProbeAddr,
+		LeaderElection:         true,
+		LeaderElectionID:       fmt.Sprintf("670aa2de.%s", leaderElectionIDSuffix),
+		WebhookServer:          webhook.NewServer(webhook.Options{Port: opts.port}),
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		logger.Error(err, "failed to setup webhook manager")
 		os.Exit(1)
 	}
 
-	if err := (&controllers.AuthConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AuthConfig")
+	// starts the webhook manager
+	signalHandler := ctrl.SetupSignalHandler()
+	logger.Info("starting webhook manager")
+	if err := mgr.Start(signalHandler); err != nil {
+		logger.Error(err, "failed to start webhook manager")
 		os.Exit(1)
 	}
-	// +kubebuilder:scaffold:builder
+}
 
-	if metricsCertWatcher != nil {
-		setupLog.Info("Adding metrics certificate watcher to manager")
-		if err := mgr.Add(metricsCertWatcher); err != nil {
-			setupLog.Error(err, "unable to add metrics certificate watcher to manager")
-			os.Exit(1)
+func setup(cmd *cobra.Command, log logOptions, telemetry telemetryOptions) {
+	setupLogger(log)
+
+	logger.Info("build information", "version", version, "commit", gitSHA, "dirty", dirty, "cmd", cmd.Use)
+
+	// log the command-line args
+	if logger.V(1).Enabled() {
+		var flags []interface{}
+		cmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+			flags = append(flags, flag.Name, flag.Value.String())
+		})
+		logger.V(1).Info("setting up with options", flags...)
+	}
+
+	setupTelemetryServices(telemetry)
+}
+
+func setupLogger(opts logOptions) {
+	logOpts := log.Options{Level: log.ToLogLevel(opts.level), Mode: log.ToLogMode(opts.mode)}
+	logger = log.NewLogger(logOpts).WithName("authorino")
+	log.SetLogger(logger, logOpts)
+}
+
+func setupTelemetryServices(opts telemetryOptions) {
+	telemetryLogger := logger.WithName("telemetry")
+	otel.SetLogger(telemetryLogger)
+	otel.SetErrorHandler(&trace.ErrorHandler{Logger: telemetryLogger})
+
+	if opts.tracingServiceEndpoint != "" {
+		tp, err := trace.CreateTraceProvider(trace.Config{
+			Endpoint: opts.tracingServiceEndpoint,
+			Insecure: opts.tracingServiceInsecure,
+			Version:  version,
+			Tags:     opts.tracingServiceTags,
+		})
+		if err != nil {
+			telemetryLogger.Error(err, "unable to set trace provider")
+		} else {
+			otel.SetTracerProvider(tp)
 		}
 	}
 
-	if webhookCertWatcher != nil {
-		setupLog.Info("Adding webhook certificate watcher to manager")
-		if err := mgr.Add(webhookCertWatcher); err != nil {
-			setupLog.Error(err, "unable to add webhook certificate watcher to manager")
-			os.Exit(1)
+	otel.SetTextMapPropagator(otel_propagation.NewCompositeTextMapPropagator(otel_propagation.TraceContext{}, otel_propagation.Baggage{}))
+}
+
+func setupManager(options ctrl.Options) (ctrl.Manager, error) {
+	if options.Metrics.BindAddress != "0" {
+		options.Metrics.ExtraHandlers = map[string]http.Handler{"/server-metrics": promhttp.Handler()}
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
+	if err != nil {
+		return nil, err
+	}
+
+	if options.HealthProbeBindAddress != "0" {
+		if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+	return mgr, nil
+}
+
+func startExtAuthServerGRPC(authConfigIndex index.Index, opts authServerOptions) {
+	lis, err := listen(opts.extAuthGRPCPort)
+
+	if err != nil {
+		logger.Error(err, "failed to obtain port for the grpc auth service")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+	if lis == nil {
+		logger.Info("disabling grpc auth service")
+		return
+	}
+
+	grpcServerOpts := []grpc.ServerOption{
+		grpc.MaxConcurrentStreams(gRPCMaxConcurrentStreams),
+		grpc.ChainStreamInterceptor(grpc_prometheus.StreamServerInterceptor, otel_grpc.StreamServerInterceptor()),
+		grpc.ChainUnaryInterceptor(grpc_prometheus.UnaryServerInterceptor, otel_grpc.UnaryServerInterceptor()),
+	}
+
+	tlsEnabled := opts.tlsCertPath != "" && opts.tlsCertKeyPath != ""
+
+	if tlsEnabled {
+		if tlsCert, err := tls.LoadX509KeyPair(opts.tlsCertPath, opts.tlsCertKeyPath); err != nil {
+			logger.Error(err, "failed to load tls cert for the grpc auth service")
+			os.Exit(1)
+		} else {
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{tlsCert},
+				ClientAuth:   tls.NoClientCert,
+				MinVersion:   tls.VersionTLS12,
+			}
+			grpcServerOpts = append(grpcServerOpts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+		}
+	}
+
+	grpcServer := grpc.NewServer(grpcServerOpts...)
+	reflection.Register(grpcServer)
+
+	envoy_auth.RegisterAuthorizationServer(grpcServer, &service.AuthService{Index: authConfigIndex, Timeout: timeoutMs(opts.timeout)})
+	healthpb.RegisterHealthServer(grpcServer, &service.HealthService{})
+	grpc_prometheus.Register(grpcServer)
+	grpc_prometheus.EnableHandlingTimeHistogram()
+
+	go func() {
+		logger.Info("starting grpc auth service", "port", opts.extAuthGRPCPort, "tls", tlsEnabled)
+
+		if err := grpcServer.Serve(lis); err != nil {
+			logger.Error(err, "failed to start grpc auth service")
+			os.Exit(1)
+		}
+	}()
+}
+
+func startExtAuthServerHTTP(authConfigIndex index.Index, opts authServerOptions) {
+	startHTTPService("auth", opts.extAuthHTTPPort, service.HTTPAuthorizationBasePath, opts.tlsCertPath, opts.tlsCertKeyPath, service.NewAuthService(authConfigIndex, timeoutMs(opts.timeout), opts.maxHttpRequestBodySize))
+}
+
+func startOIDCServer(authConfigIndex index.Index, opts authServerOptions) {
+	startHTTPService("oidc", opts.oidcHTTPPort, service.OIDCBasePath, opts.oidcTLSCertPath, opts.oidcTLSCertKeyPath, &service.OidcService{Index: authConfigIndex})
+}
+
+func startHTTPService(name string, port int, basePath, tlsCertPath, tlsCertKeyPath string, handler http.Handler) {
+	lis, err := listen(port)
+
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("failed to obtain port for the http %s service", name))
 		os.Exit(1)
+	}
+
+	if lis == nil {
+		logger.Info(fmt.Sprintf("disabling http %s service", name))
+		return
+	}
+
+	http.Handle(basePath, otel_http.NewHandler(handler, name))
+
+	tlsEnabled := tlsCertPath != "" && tlsCertKeyPath != ""
+
+	go func() {
+		var err error
+
+		logger.Info(fmt.Sprintf("starting http %s service", name), "port", port, "tls", tlsEnabled)
+
+		if tlsEnabled {
+			server := &http.Server{
+				TLSConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					ClientAuth: tls.RequestClientCert,
+				},
+			}
+			err = server.ServeTLS(lis, tlsCertPath, tlsCertKeyPath)
+		} else {
+			err = http.Serve(lis, nil)
+		}
+
+		if err != nil {
+			logger.Error(err, fmt.Sprintf("failed to start http %s service", name))
+			os.Exit(1)
+		}
+	}()
+}
+
+func listen(port int) (net.Listener, error) {
+	if port == 0 {
+		return nil, nil
+	}
+
+	if lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err != nil {
+		return nil, err
+	} else {
+		return lis, nil
+	}
+}
+
+func fetchEnv(key string, def interface{}) string {
+	val, ok := os.LookupEnv(key)
+	if !ok {
+		return fmt.Sprint(def)
+	} else {
+		return val
+	}
+}
+
+func timeoutMs(timeout int) time.Duration {
+	return time.Duration(timeout) * time.Millisecond
+}
+
+func printVersion(_ *cobra.Command, _ []string) {
+	if dirty == "true" {
+		fmt.Printf("Authorino %s (%s-dirty)\n", version, gitSHA)
+	} else {
+		fmt.Printf("Authorino %s (%s)\n", version, gitSHA)
 	}
 }
