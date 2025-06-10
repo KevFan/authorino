@@ -2,7 +2,7 @@
 
 This page covers requirements and instructions to deploy Authorino on a Kubernetes cluster, as well as the steps to declare, apply and try out a protection layer of authentication and authorization over your service, clean-up and complete uninstallation.
 
-If you prefer learning with an example, check out our [Hello World](./user-guides/hello-world.md).
+If you prefer learning with an example, check out our [Hello World](user-guides/hello-world.md).
 
 ## Requirements
 
@@ -36,7 +36,7 @@ A few examples are:
 
 - For **User-Managed Access (UMA)** resource data, you will need a UMA-compliant server running as well. This can be an implementation of the UMA protocol by each upstream API itself or (more typically) an external server that knows about the resources. Again, Keycloak can be a good fit here as well. Just keep in mind that, whatever resource server you choose, changing-state actions commanded in the upstream APIs or other parties will have to be reflected in the resource server. Authorino will not do that for you.
 
-Check out the [Feature specification](./features.md) page for more feature-specific requirements.
+Check out the [Feature specification](features.md) page for more feature-specific requirements.
 
 ## Installation
 
@@ -56,9 +56,9 @@ Alternatively, you can deploy the Authorino Operator using the Operator Lifecycl
 
 ### Step: Request an Authorino instance
 
-Choose either [cluster-wide or namespaced deployment mode](./architecture.md#cluster-wide-vs-namespaced-instances) and whether you want TLS termination enabled for the Authorino endpoints (gRPC authorization, raw HTTP authorization, and OIDC Festival Wristband Discovery listeners), and follow the corresponding instructions below.
+Choose either [cluster-wide or namespaced deployment mode](architecture.md#cluster-wide-vs-namespaced-instances) and whether you want TLS termination enabled for the Authorino endpoints (gRPC authorization, raw HTTP authorization, and OIDC Festival Wristband Discovery listeners), and follow the corresponding instructions below.
 
-The instructions here are for centralized gateway or centralized authorization service architecture. Check out the [Topologies](./architecture.md#topologies) section of the docs for alternatively running Authorino in a sidecar container.
+The instructions here are for centralized gateway or centralized authorization service architecture. Check out the [Topologies](architecture.md#topologies) section of the docs for alternatively running Authorino in a sidecar container.
 
 <details markdown="1">
   <summary><strong>Cluster-wide (with TLS)</strong></summary>
@@ -325,9 +325,9 @@ EOF
 
 ### Step: Apply an `AuthConfig`
 
-Check out the [docs](./README.md) for a full description of Authorino's [`AuthConfig`](./architecture.md#the-authorino-authconfig-custom-resource-definition-crd) Custom Resource Definition (CRD) and its [features](./features.md).
+Check out the [docs](README.md) for a full description of Authorino's [`AuthConfig`](architecture.md#the-authorino-authconfig-custom-resource-definition-crd) Custom Resource Definition (CRD) and its [features](features.md).
 
-For examples based on specific use-cases, check out the [User guides](./user-guides.md).
+For examples based on specific use-cases, check out the [User guides](user-guides.md).
 
 For authentication based on OpenID Connect (OIDC) JSON Web Tokens (JWT), plus one simple JWT claim authorization check, a typical `AuthConfig` custom resource looks like the following:
 
@@ -383,5 +383,5 @@ make uninstall
 
 ## Next steps
 
-1. Read the [docs](./README.md). The [Architecture](./architecture.md) page and the [Features](./features.md) page are good starting points to learn more about how Authorino works and its functionalities.
-2. Check out the [User guides](./user-guides.md) for several examples of `AuthConfig`s based on specific use-cases
+1. Read the [docs](README.md). The [Architecture](architecture.md) page and the [Features](features.md) page are good starting points to learn more about how Authorino works and its functionalities.
+2. Check out the [User guides](user-guides.md) for several examples of `AuthConfig`s based on specific use-cases

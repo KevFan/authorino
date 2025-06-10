@@ -4,7 +4,7 @@
 
 We call _features_ of Authorino the different things one can do to enforce identity verification & authentication and authorization on requests to protected services. These can be a specific identity verification method based on a supported authentication protocol, or a method to fetch additional auth metadata in request-time, etc.
 
-Most features of Authorino relate to the different phases of the [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) and therefore are configured in the Authorino [`AuthConfig`](./architecture.md#the-authorino-authconfig-custom-resource-definition-crd). An _identity verification/authentication feature_ usually refers to a functionality of Authorino such as the [API key-based authentication](#api-key-authenticationapikey), the [validation of JWTs/OIDC ID tokens](#jwt-verification-authenticationjwt), and authentication based on [Kubernetes TokenReviews](#kubernetes-tokenreview-authenticationkubernetestokenreview). Analogously, [OPA](#open-policy-agent-opa-rego-policies-authorizationopa), [pattern-matching](#pattern-matching-authorization-authorizationpatternmatching) and [Kubernetes SubjectAccessReview](#kubernetes-subjectaccessreview-authorizationkubernetessubjectaccessreview) are examples of _authorization features_ of Authorino.
+Most features of Authorino relate to the different phases of the [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) and therefore are configured in the Authorino [`AuthConfig`](architecture.md#the-authorino-authconfig-custom-resource-definition-crd). An _identity verification/authentication feature_ usually refers to a functionality of Authorino such as the [API key-based authentication](#api-key-authenticationapikey), the [validation of JWTs/OIDC ID tokens](#jwt-verification-authenticationjwt), and authentication based on [Kubernetes TokenReviews](#kubernetes-tokenreview-authenticationkubernetestokenreview). Analogously, [OPA](#open-policy-agent-opa-rego-policies-authorizationopa), [pattern-matching](#pattern-matching-authorization-authorizationpatternmatching) and [Kubernetes SubjectAccessReview](#kubernetes-subjectaccessreview-authorizationkubernetessubjectaccessreview) are examples of _authorization features_ of Authorino.
 
 At a deeper level, a _feature_ can also be an additional functionality within a bigger feature, usually applicable to the whole class the bigger feature belongs to. For instance, the configuration of how [auth credentials](#extra-auth-credentials-authenticationcredentials) expected to be carried in the request, which is broadly available for any identity verification method. Other examples are: [_Identity extension_](#extra-identity-extension-authenticationdefaults-and-authenticationoverrides) and [Priorities](#common-feature-priorities).
 
@@ -16,7 +16,7 @@ You can also learn about Authorino features by using the [`kubectl explain`](htt
 
 > **Deprecated:** Prefer `predicate` and `expression`, based on [Common Expression Language (CEL)](#common-feature-common-expression-language-cel), instead.
 
-The first feature of Authorino to learn about is a common functionality used in the specification of many other features. _JSON paths_ are selectors of data from the [Authorization JSON](./architecture.md#the-authorization-json) used in parts of an AuthConfig for referring to dynamic values of each authorization request.
+The first feature of Authorino to learn about is a common functionality used in the specification of many other features. _JSON paths_ are selectors of data from the [Authorization JSON](architecture.md#the-authorization-json) used in parts of an AuthConfig for referring to dynamic values of each authorization request.
 
 Usage examples of JSON paths are: dynamic URLs and request parameters when fetching metadata from external sources, dynamic authorization policy rules, and dynamic authorization response attributes (e.g. injected HTTP headers, Festival Wristband token claims, etc).
 
@@ -76,11 +76,11 @@ _JSON paths_ can be interpolated into strings to build template-like dynamic val
 
 ## Common feature: Common Expression Language (CEL)
 
-Similar to [JSON Paths](#common-feature-json-paths-selector), Authorino supports [Common Expression Language (CEL)](https://cel.dev/) for selecting data from the [Authorization JSON](./architecture.md#the-authorization-json) and representing predicates. This is a more powerful, properly typed alternative to JSON Paths, with a well-documented [syntax](https://github.com/google/cel-spec/blob/master/doc/langdef.md).
+Similar to [JSON Paths](#common-feature-json-paths-selector), Authorino supports [Common Expression Language (CEL)](https://cel.dev/) for selecting data from the [Authorization JSON](architecture.md#the-authorization-json) and representing predicates. This is a more powerful, properly typed alternative to JSON Paths, with a well-documented [syntax](https://github.com/google/cel-spec/blob/master/doc/langdef.md).
 
 [String extension functions](https://pkg.go.dev/github.com/google/cel-go/ext#readme-strings), such as `split`, `substring`, `indexOf`, etc, are also supported.
 
-Use the `expression` field for selecting values from the [Authorization JSON](./architecture.md#the-authorization-json). The type of the selected value will be converted to a JSON-compatible equivalent. Complex types without a direct JSON equivalent may be converted to objects (e.g. `google.golang.org/protobuf/types/known/timestamppb.Timestamp` gets converted to `{ "seconds": Number, "nanos": Number }`)
+Use the `expression` field for selecting values from the [Authorization JSON](architecture.md#the-authorization-json). The type of the selected value will be converted to a JSON-compatible equivalent. Complex types without a direct JSON equivalent may be converted to objects (e.g. `google.golang.org/protobuf/types/known/timestamppb.Timestamp` gets converted to `{ "seconds": Number, "nanos": Number }`)
 
 The most common applications of `expression` are for building dynamic URLs and request parameters when fetching metadata from external sources, extending properties of identity objects, and dynamic authorization response attributes (e.g. injected HTTP headers, etc).
 
@@ -94,7 +94,7 @@ Authorino relies on Kubernetes `Secret` resources to represent API keys.
 
 To define an API key, create a `Secret` in the cluster containing an `api_key` entry that holds the value of the API key.
 
-API key secrets must be created in the same namespace of the `AuthConfig` (default) or `spec.authentication.apiKey.allNamespaces` must be set to `true` (only works with [cluster-wide Authorino instances](./architecture.md#cluster-wide-vs-namespaced-instances)).
+API key secrets must be created in the same namespace of the `AuthConfig` (default) or `spec.authentication.apiKey.allNamespaces` must be set to `true` (only works with [cluster-wide Authorino instances](architecture.md#cluster-wide-vs-namespaced-instances)).
 
 API key secrets must be labeled with the labels that match the selectors specified in `spec.authentication.apiKey.selector` in the `AuthConfig`.
 
@@ -220,7 +220,7 @@ Authorino can verify X.509 certificates presented by clients for authentication 
 
 Trusted root Certificate Authorities (CA) are stored in Kubernetes Secrets labeled according to selectors specified in the AuthConfig, watched and indexed by Authorino. Make sure to create proper `kubernetes.io/tls`-typed Kubernetes Secrets, containing the public certificates of the CA stored in either a `tls.crt` or `ca.crt` entry inside the secret.
 
-Trusted root CA secrets must be created in the same namespace of the `AuthConfig` (default) or `spec.authentication.x509.allNamespaces` must be set to `true` (only works with [cluster-wide Authorino instances](./architecture.md#cluster-wide-vs-namespaced-instances)).
+Trusted root CA secrets must be created in the same namespace of the `AuthConfig` (default) or `spec.authentication.x509.allNamespaces` must be set to `true` (only works with [cluster-wide Authorino instances](architecture.md#cluster-wide-vs-namespaced-instances)).
 
 Client certificates must include x509 v3 extension specifying 'Client Authentication' extended key usage.
 
@@ -256,7 +256,7 @@ The identity object resolved out of a client x509 certificate is equal to the su
 
 Authorino can read plain identity objects, based on authentication tokens provided and verified beforehand using other means (e.g. Envoy [JWT Authentication filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/jwt_authn_filter#config-http-filters-jwt-authn), Kubernetes API server authentication), and injected into the payload to the external authorization service.
 
-The plain identity object is retrieved from the Authorization JSON. See [Common Expression Language (CEL)](./features.md#common-feature-common-expression-language-cel).
+The plain identity object is retrieved from the Authorization JSON. See [Common Expression Language (CEL)](features.md#common-feature-common-expression-language-cel).
 
 This feature is particularly useful in cases where authentication/identity verification is handled before invoking the authorization service and its resolved value injected in the payload can be trusted. Examples of applications for this feature include:
 - Authentication handled in Envoy leveraging the Envoy JWT Authentication filter (decoded JWT injected as 'metadata_context')
@@ -353,7 +353,7 @@ In case of extending an existing property of the identity object (replacing), th
 
 ### HTTP GET/GET-by-POST ([`metadata.http`](https://pkg.go.dev/github.com/kuadrant/authorino/api/v1beta2?utm_source=gopls#HttpEndpointSpec))
 
-Generic HTTP adapter that sends a request to an external service. It can be used to fetch external metadata for the authorization policies (phase ii of the Authorino [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)), or as a web hook.
+Generic HTTP adapter that sends a request to an external service. It can be used to fetch external metadata for the authorization policies (phase ii of the Authorino [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)), or as a web hook.
 
 The adapter allows issuing requests either by GET or POST methods; in both cases with URL and parameters defined by the user in the spec. Dynamic values fetched from the Authorization JSON can be used.
 
@@ -367,7 +367,7 @@ Custom headers can be set with the `headers` field. Nevertheless, headers such a
 
 ### OIDC UserInfo ([`metadata.userInfo`](https://pkg.go.dev/github.com/kuadrant/authorino/api/v1beta2?utm_source=gopls#UserInfoMetadataSpec))
 
-Online fetching of OpenID Connect (OIDC) UserInfo data (phase ii of the Authorino [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)), associated with an OIDC identity source configured and resolved in phase (i).
+Online fetching of OpenID Connect (OIDC) UserInfo data (phase ii of the Authorino [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)), associated with an OIDC identity source configured and resolved in phase (i).
 
 Apart from possibly complementing information of the JWT, fetching OpenID Connect UserInfo in request-time can be particularly useful for remote checking the state of the session, as opposed to only verifying the JWT/JWS offline.
 
@@ -387,7 +387,7 @@ A UMA-compliant server is an external authorization server (e.g., Keycloak) wher
 
 It's important to notice that Authorino does NOT manage resources in the UMA-compliant server. As shown in the flow above, Authorino's UMA client is only to fetch data about the requested resources. Authorino exchanges client credentials for a Protected API Token (PAT), then queries for resources whose URI match the path of the HTTP request (as passed to Authorino by the Envoy proxy) and fetches data of each matching resource.
 
-The resources data is added as metadata of the authorization payload and passed as input for the configured authorization policies. All resources returned by the UMA-compliant server in the query by URI are passed along. They are available in the PDPs (authorization payload) as `input.auth.metadata.custom-name => Array`. (See [The "Auth Pipeline"](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) for details.)
+The resources data is added as metadata of the authorization payload and passed as input for the configured authorization policies. All resources returned by the UMA-compliant server in the query by URI are passed along. They are available in the PDPs (authorization payload) as `input.auth.metadata.custom-name => Array`. (See [The "Auth Pipeline"](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) for details.)
 
 ## Authorization features ([`authorization`](https://pkg.go.dev/github.com/kuadrant/authorino/api/v1beta2?utm_source=gopls#Authorization))
 
@@ -396,7 +396,7 @@ The resources data is added as metadata of the authorization payload and passed 
 Grant/deny access based on simple pattern-matching expressions ("patterns") compared against values selected from the Authorization JSON.
 
 Each expression is composed of exactly one of the following options:
-1. a `predicate` field - [Common Expression Language (CEL)](./features.md#common-feature-common-expression-language-cel) expression that evaluates to a boolean value;
+1. a `predicate` field - [Common Expression Language (CEL)](features.md#common-feature-common-expression-language-cel) expression that evaluates to a boolean value;
 2. a tuple composed of:
   - `selector`: a [JSON path](#common-feature-json-paths-selector) to fetch a value from the Authorization JSON
   - `operator`: one of: `eq` (_equals_), `neq` (_not equal_); `incl` (_includes_) and `excl` (_excludes_), for arrays; and `matches`, for regular expressions
@@ -585,7 +585,7 @@ rate_limits:
 
 #### Custom denial status ([`response.unauthenticated`](https://pkg.go.dev/github.com/kuadrant/authorino/api/v1beta2?utm_source=gopls#DenyWithSpec) and [`response.unauthorized`](https://pkg.go.dev/github.com/kuadrant/authorino/api/v1beta2?utm_source=gopls#DenyWithSpec))
 
-By default, Authorino will inform Envoy to respond with `401 Unauthorized` or `403 Forbidden` respectively when the identity verification (phase i of the [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)) or authorization (phase ii) fail. These can be customized respectively by specifying `spec.response.unauthanticated` and `spec.response.unauthorized` in the `AuthConfig`.
+By default, Authorino will inform Envoy to respond with `401 Unauthorized` or `403 Forbidden` respectively when the identity verification (phase i of the [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time)) or authorization (phase ii) fail. These can be customized respectively by specifying `spec.response.unauthanticated` and `spec.response.unauthorized` in the `AuthConfig`.
 
 ### Custom response methods
 
@@ -604,7 +604,7 @@ response:
           value: Authorino
 ```
 
-or fetched dynamically from the [Authorization JSON](./architecture.md#the-authorization-json) (which includes support for [interpolation](#interpolation)):
+or fetched dynamically from the [Authorization JSON](architecture.md#the-authorization-json) (which includes support for [interpolation](#interpolation)):
 
 ```yaml
 response:
@@ -749,7 +749,7 @@ spec:
 
 ## Common feature: Priorities
 
-_Priorities_ allow to set sequence of execution for blocks of concurrent evaluators within phases of the [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time).
+_Priorities_ allow to set sequence of execution for blocks of concurrent evaluators within phases of the [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time).
 
 Evaluators of same priority execute concurrently to each other "in a block". After syncing that block (i.e. after all evaluators of the block have returned), the next block of evaluator configs of consecutive priority is triggered.
 
@@ -840,7 +840,7 @@ For the `AuthConfig` above,
 
 _Conditions_, identified by the `when` field in the AuthConfig API, are logical expressions ("predicates") that can be used to condition the evaluation of a particular auth rule, as well as of the AuthConfig altogether ("top-level conditions").
 
-The predicates are evaluated against the [Authorization JSON](./architecture.md#the-authorization-json), where each predicate is composed of exactly one of the following options:
+The predicates are evaluated against the [Authorization JSON](architecture.md#the-authorization-json), where each predicate is composed of exactly one of the following options:
 1. a `predicate` field – [CEL expression](#common-feature-common-expression-language-cel) that evaluates to a boolean value;
 2. a tuple composed of:
   - `selector`: a [JSON path](#common-feature-json-paths-selector) to fetch a value from the Authorization JSON
@@ -1036,7 +1036,7 @@ spec:
 
 ## Common feature: Caching (`cache`)
 
-Objects resolved at runtime in an [Auth Pipeline](./architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) can be cached "in-memory", and avoided being evaluated again at a subsequent request, until it expires. A lookup cache key and a TTL can be set individually for any evaluator config in an AuthConfig.
+Objects resolved at runtime in an [Auth Pipeline](architecture.md#the-auth-pipeline-aka-enforcing-protection-in-request-time) can be cached "in-memory", and avoided being evaluated again at a subsequent request, until it expires. A lookup cache key and a TTL can be set individually for any evaluator config in an AuthConfig.
 
 Each cache config induces a completely independent cache table (or "cache namespace"). Consequently, different evaluator configs can use the same cache key and there will be no collision between entries from different evaluators.
 
@@ -1070,7 +1070,7 @@ spec:
         ttl: 60
 ```
 
-The example above sets caching for the 'external-metadata' metadata config and for the 'complex-policy' authorization policy. In the case of 'external-metadata', the cache key is the path of the original HTTP request being authorized by Authorino (fetched dynamically from the [Authorization JSON](./architecture.md#the-authorization-json)); i.e., after obtaining a metadata object from the external source for a given contextual HTTP path one first time, whenever that same HTTP path repeats in a subsequent request, Authorino will use the cached object instead of sending a request again to the external source of metadata. After 5 minutes (300 seconds), the cache entry will expire and Authorino will fetch again from the source if requested.
+The example above sets caching for the 'external-metadata' metadata config and for the 'complex-policy' authorization policy. In the case of 'external-metadata', the cache key is the path of the original HTTP request being authorized by Authorino (fetched dynamically from the [Authorization JSON](architecture.md#the-authorization-json)); i.e., after obtaining a metadata object from the external source for a given contextual HTTP path one first time, whenever that same HTTP path repeats in a subsequent request, Authorino will use the cached object instead of sending a request again to the external source of metadata. After 5 minutes (300 seconds), the cache entry will expire and Authorino will fetch again from the source if requested.
 
 As for the 'complex-policy' authorization policy, the cache key is a string composed the 'group' the identity belongs to, the method of the HTTP request and the path of the HTTP request. Whenever these repeat, Authorino will use the result of the policy that was evaluated and cached priorly. Cache entries in this namespace expire after 60 seconds.
 
@@ -1126,4 +1126,4 @@ The same pattern works for other types of evaluators. Find below the list of all
 
 Metrics at the level of the evaluators can also be enforced to an entire Authorino instance, by setting the <code>--deep-metrics-enabled</code> command-line flag. In this case, regardless of the value of the field `spec.(authentication|metadata|authorization|response).metrics` in the AuthConfigs, individual metrics for all evaluators of all AuthConfigs will be exported.
 
-For more information about metrics exported by Authorino, see [Observability](./user-guides/observability.md#metrics).
+For more information about metrics exported by Authorino, see [Observability](user-guides/observability.md#metrics).

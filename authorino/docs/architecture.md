@@ -2,7 +2,7 @@
 
 ## Overview
 
-![Architecture](./architecture.gif)
+![Architecture](architecture.gif)
 
 There are a few concepts to understand Authorino's architecture. The main components are: **Authorino**, **Envoy** and the **Upstream** service to be protected. Envoy proxies requests to the configured **virtual host** upstream service, first contacting with Authorino to decide on authN/authZ.
 
@@ -36,7 +36,7 @@ Each topology above induces different measures for security.
 
 ![Centralized gateway topology](http://www.plantuml.com/plantuml/png/XOynJiKm343tdCBw0rk75aQ4_XyOsBY2rPWc-eaTEGa88Gu26pkduYJyfYf2KCJav5alJzddWbfg32OVFITKZ125PNGgaQ1e9MCIZaUS299Om3oF7fuCWD9OaAT0iFjuVO73xSrktcFolNdUqeP_j65RE_-blR_1DT_BOnDfFlrHlFYfNfvbvodOApZKuaGzor9VR-qXpuNq3iUJ06tj-nFieLjZou2kfcxvxmgiF713mnTIFxdIVI_iYMsDuHC0)
 
-Recommended in the protected services to validate the origin of the traffic. It must have been proxied by Envoy. See Authorino [JSON injection](./features.md#json-injection-responsesuccessheadersdynamicmetadatajson) for an extra validation option using a shared secret passed in HTTP header.
+Recommended in the protected services to validate the origin of the traffic. It must have been proxied by Envoy. See Authorino [JSON injection](features.md#json-injection-responsesuccessheadersdynamicmetadatajson) for an extra validation option using a shared secret passed in HTTP header.
 
 ### Centralized authorization service
 
@@ -144,13 +144,13 @@ spec:
   callbacks: {"name" → {…}, …}
 ```
 
-Check out the [OAS](../install/crd/authorino.kuadrant.io_authconfigs.yaml) of the `AuthConfig` CRD for a formal specification of the options for `authentication` verification, external `metadata` fetching, `authorization` policies, and dynamic `response`, as well as any other host protection capability implemented by Authorino.
+Check out the [OAS](../../install/crd/authorino.kuadrant.io_authconfigs.yaml) of the `AuthConfig` CRD for a formal specification of the options for `authentication` verification, external `metadata` fetching, `authorization` policies, and dynamic `response`, as well as any other host protection capability implemented by Authorino.
 
 You can also read the specification from the CLI using the [`kubectl explain`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#explain) command. The Authorino CRD is required to have been installed in Kubernetes cluster. E.g. `kubectl explain authconfigs.spec.authentication.overrides`.
 
-A complete description of supported features and corresponding configuration options within an `AuthConfig` CR can be found in the [Features](./features.md) page.
+A complete description of supported features and corresponding configuration options within an `AuthConfig` CR can be found in the [Features](features.md) page.
 
-More concrete examples of `AuthConfig`s for specific use-cases can be found in the [User guides](./user-guides.md).
+More concrete examples of `AuthConfig`s for specific use-cases can be found in the [User guides](user-guides.md).
 
 ## Resource reconciliation and status update
 
@@ -162,9 +162,9 @@ The above means that all replicas of an Authorino instance should be able to rec
 
 Among the multiple replicas of an instance, Authorino elects one replica to be leader. The leader is responsible for updating the status of reconciled `AuthConfig`s. If the leader eventually becomes unavailable, the instance will automatically elect another replica take its place as the new leader.
 
-The status of an `AuthConfig` tells whether the resource is "ready" (i.e. indexed). It also includes summary information regarding the numbers of authentication configs, metadata configs, authorization configs and response configs within the spec, as well as whether [Festival Wristband](./features.md#festival-wristband-tokens-responsesuccessheadersdynamicmetadatawristband) tokens are being issued by the Authorino instance as by spec.
+The status of an `AuthConfig` tells whether the resource is "ready" (i.e. indexed). It also includes summary information regarding the numbers of authentication configs, metadata configs, authorization configs and response configs within the spec, as well as whether [Festival Wristband](features.md#festival-wristband-tokens-responsesuccessheadersdynamicmetadatawristband) tokens are being issued by the Authorino instance as by spec.
 
-Apart from watching events related to `AuthConfig` custom resources, Authorino also watches events related to Kubernetes `Secret`s, as part of Authorino's [API key authentication](./features.md#api-key-authenticationapikey) feature. `Secret` resources that store API keys are linked to their corresponding `AuthConfig`s in the index. Whenever the Authorino instance detects a change in the set of API key `Secret`s linked to an `AuthConfig`s, the instance reconciles the index.
+Apart from watching events related to `AuthConfig` custom resources, Authorino also watches events related to Kubernetes `Secret`s, as part of Authorino's [API key authentication](features.md#api-key-authenticationapikey) feature. `Secret` resources that store API keys are linked to their corresponding `AuthConfig`s in the index. Whenever the Authorino instance detects a change in the set of API key `Secret`s linked to an `AuthConfig`s, the instance reconciles the index.
 
 Authorino only watches events related to `Secret`s whose `metadata.labels` match the label selector `--secret-label-selector` of the Authorino instance. The default values of the label selector for Kubernetes `Secret`s representing Authorino API keys is `authorino.kuadrant.io/managed-by=authorino`.
 
@@ -284,15 +284,15 @@ After phase (iii), Authorino appends to the authorization JSON the results of th
 }
 ```
 
-[Festival Wristbands](./features.md#festival-wristband-tokens-responsesuccessheadersdynamicmetadatawristband) and [Dynamic JSON](./features.md#json-injection-responsesuccessheadersdynamicmetadatajson) responses can include dynamic values (custom claims/properties) fetched from the authorization JSON. These can be returned to the external authorization client in added HTTP headers or as Envoy [Well Known Dynamic Metadata](https://www.envoyproxy.io/docs/envoy/latest/configuration/advanced/well_known_dynamic_metadata). Check out [Custom response features](./features.md#custom-response-features-response) for details.
+[Festival Wristbands](features.md#festival-wristband-tokens-responsesuccessheadersdynamicmetadatawristband) and [Dynamic JSON](features.md#json-injection-responsesuccessheadersdynamicmetadatajson) responses can include dynamic values (custom claims/properties) fetched from the authorization JSON. These can be returned to the external authorization client in added HTTP headers or as Envoy [Well Known Dynamic Metadata](https://www.envoyproxy.io/docs/envoy/latest/configuration/advanced/well_known_dynamic_metadata). Check out [Custom response features](features.md#custom-response-features-response) for details.
 
-For information about reading and fetching data from the Authorization JSON (syntax, functions, etc), check out [Common Expression Language (CEL)](./features.md#common-feature-common-expression-language-cel).
+For information about reading and fetching data from the Authorization JSON (syntax, functions, etc), check out [Common Expression Language (CEL)](features.md#common-feature-common-expression-language-cel).
 
 ## Raw HTTP Authorization interface
 
 Besides providing the gRPC authorization interface – that implements the Envoy gRPC authorization server –, Authorino also provides another interface for **raw HTTP authorization**. This second interface responds to `GET` and `POST` HTTP requests sent to `:5001/check`, and is suitable for other forms of integration, such as:
 
-- using Authorino as Kubernetes ValidatingWebhook service ([example](./user-guides/validating-webhook.md));
+- using Authorino as Kubernetes ValidatingWebhook service ([example](user-guides/validating-webhook.md));
 - other HTTP proxies and API gateways;
 - old versions of Envoy incompatible with the latest version of gRPC external authorization protocol (Authorino is based on v3.19.1 of Envoy external authorization API)
 
@@ -387,4 +387,4 @@ The table below describes the roles and role bindings defined by the Authorino s
 
 ## Observability
 
-Please refer to the [Observability](./user-guides/observability.md) user guide for info on Prometheus metrics exported by Authorino, readiness probe, logging, tracing, etc.
+Please refer to the [Observability](user-guides/observability.md) user guide for info on Prometheus metrics exported by Authorino, readiness probe, logging, tracing, etc.

@@ -59,7 +59,7 @@ Good changes...
 
 - follow the [Golang conventions](https://golang.org/doc/effective_go)
 - have proper test coverage
-- address corresponding updates to the [docs](./README.md)
+- address corresponding updates to the [docs](README.md)
 - help us fix wherever we failed to do the above 😜
 
 ### Run the tests
@@ -235,7 +235,7 @@ All commits to be accepted to Authorino's code are required to be signed. Refer 
 
 A few guidelines for adding logging messages in your code:
 
-1. Make sure you understand Authorino's [Logging](./user-guides/observability.md#logging) architecture and policy regarding log levels, log modes, tracing IDs, etc.
+1. Make sure you understand Authorino's [Logging](user-guides/observability.md#logging) architecture and policy regarding log levels, log modes, tracing IDs, etc.
 2. Respect controller-runtime's [Logging Guidelines](https://github.com/kubernetes-sigs/controller-runtime/blob/master/TMP-LOGGING.md).
 3. Do not add sensitive data to your `info` log messages; instead, redact all sensitive data in your log messages or use `debug` log level by mutating the logger with `V(1)` before outputting the message.
 
@@ -243,10 +243,10 @@ A few guidelines for adding logging messages in your code:
 
 Here in the repo:
 
-- [Getting started](./getting-started.md)
-- [Terminology](./terminology.md)
-- [Architecture](./architecture.md)
-- [Feature description](./features.md)
+- [Getting started](getting-started.md)
+- [Terminology](terminology.md)
+- [Architecture](architecture.md)
+- [Feature description](features.md)
 
 Other repos:
 
