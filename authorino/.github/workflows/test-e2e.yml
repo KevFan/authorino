@@ -1,13 +1,20 @@
 name: E2E Tests
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      operatorVersion:
+        description: Authorino Operator version
+        required: true
+        default: latest
 
 jobs:
   test-e2e:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        authconfig_version: [v1beta2, v1beta3]
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -27,6 +34,9 @@ jobs:
         run: kind version
 
       - name: Running Test e2e
+        env:
+          OPERATOR_VERSION: ${{ github.event.inputs.operatorVersion }}
+          AUTHCONFIG_VERSION: ${{ matrix.authconfig_version }}
         run: |
           go mod tidy
           make test-e2e
