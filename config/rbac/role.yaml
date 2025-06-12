@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - authconfig.authorino.kuadrant.io
+  resources:
+  - authconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - authconfig.authorino.kuadrant.io
+  resources:
+  - authconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - authconfig.authorino.kuadrant.io
+  resources:
+  - authconfigs/status
+  verbs:
+  - get
+  - patch
+  - update

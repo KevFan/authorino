@@ -134,7 +134,7 @@ manifests: controller-gen kustomize ## Generates the manifests in $PROJECT_DIR/i
 run:git_sha=$(shell git rev-parse HEAD)
 run:dirty=$(shell $(PROJECT_DIR)/hack/check-git-dirty.sh || echo "unknown")
 run: generate manifests ## Runs the application against the Kubernetes cluster configured in ~/.kube/config
-	go run -ldflags "-X main.version=$(VERSION) -X main.gitSHA=${git_sha} -X main.dirty=${dirty}" ./main.go server
+	go run -ldflags "-X main.version=$(VERSION) -X main.gitSHA=${git_sha} -X main.dirty=${dirty}" ./cmd/main.go server
 
 build:git_sha=$(shell git rev-parse HEAD)
 build:dirty=$(shell $(PROJECT_DIR)/hack/check-git-dirty.sh || echo "unknown")
