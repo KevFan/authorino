@@ -8,7 +8,7 @@ bin/
 .gitmodules
 .dockerignore
 
-authorino/docs
+docs
 examples
 tmp
 

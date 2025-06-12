@@ -6,7 +6,7 @@ Bypass identity verification or fall back to anonymous access when credentials f
   <summary>
     <strong>Authorino capabilities featured in this guide:</strong>
     <ul>
-      <li>Identity verification & authentication → <a href="./../features.md#anonymous-access-authenticationanonymous">Anonymous access</a></li>
+      <li>Identity verification & authentication → <a href="../features.md#anonymous-access-authenticationanonymous">Anonymous access</a></li>
     </ul>
   </summary>
 
