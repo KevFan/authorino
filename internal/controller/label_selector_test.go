@@ -1,10 +1,10 @@
-package controllers
+package controller
 
 import (
 	"testing"
 
-	mock_controllers "github.com/kuadrant/authorino/internal/controllers/mocks"
-	mock_client "github.com/kuadrant/authorino/internal/controllers/mocks/controller-runtime/client"
+	mock_controllers "github.com/kuadrant/authorino/internal/controller/mocks"
+	mock_client "github.com/kuadrant/authorino/internal/controller/mocks/controller-runtime/client"
 
 	"go.uber.org/mock/gomock"
 	"gotest.tools/assert"

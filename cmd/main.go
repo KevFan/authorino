@@ -33,7 +33,7 @@ import (
 
 	"github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/kuadrant/authorino/api/v1beta3"
-	"github.com/kuadrant/authorino/internal/controllers"
+	"github.com/kuadrant/authorino/internal/controller"
 	"github.com/kuadrant/authorino/internal/evaluators"
 	"github.com/kuadrant/authorino/internal/health"
 	"github.com/kuadrant/authorino/internal/index"
@@ -259,18 +259,18 @@ func runAuthorizationServer(cmd *cobra.Command, _ []string) {
 		os.Exit(1)
 	}
 
-	statusReport := controllers.NewStatusReportMap()
+	statusReport := controller.NewStatusReportMap()
 	controllerLogger := log.WithName("controller-runtime").WithName("manager").WithName("controller")
 
 	// sets up the authconfig reconciler
-	authConfigReconciler := &controllers.AuthConfigReconciler{
+	authConfigReconciler := &controller.AuthConfigReconciler{
 		Client:                      mgr.GetClient(),
 		Index:                       index,
 		AllowSupersedingHostSubsets: opts.allowSupersedingHostSubsets,
 		StatusReport:                statusReport,
 		Logger:                      controllerLogger.WithName("authconfig"),
 		Scheme:                      mgr.GetScheme(),
-		LabelSelector:               controllers.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
+		LabelSelector:               controller.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
 		Namespace:                   opts.watchNamespace,
 	}
 	if err = authConfigReconciler.SetupWithManager(mgr); err != nil {
@@ -279,19 +279,19 @@ func runAuthorizationServer(cmd *cobra.Command, _ []string) {
 	}
 
 	// authconfig readiness check
-	readinessCheck := health.NewHandler(controllers.AuthConfigsReadyzSubpath, health.Observe(authConfigReconciler))
-	if err := mgr.AddReadyzCheck(controllers.AuthConfigsReadyzSubpath, readinessCheck.HandleReadyzCheck); err != nil {
+	readinessCheck := health.NewHandler(controller.AuthConfigsReadyzSubpath, health.Observe(authConfigReconciler))
+	if err := mgr.AddReadyzCheck(controller.AuthConfigsReadyzSubpath, readinessCheck.HandleReadyzCheck); err != nil {
 		logger.Error(err, "failed to setup reconciliation readiness check")
 		os.Exit(1)
 	}
 
 	// sets up the secret reconciler
-	if err = (&controllers.SecretReconciler{
+	if err = (&controller.SecretReconciler{
 		Client:        mgr.GetClient(),
 		Logger:        controllerLogger.WithName("secret"),
 		Scheme:        mgr.GetScheme(),
 		Index:         index,
-		LabelSelector: controllers.ToLabelSelector(opts.watchedSecretLabelSelector),
+		LabelSelector: controller.ToLabelSelector(opts.watchedSecretLabelSelector),
 		Namespace:     opts.watchNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "failed to setup controller", "controller", "secret")
@@ -322,11 +322,11 @@ func runAuthorizationServer(cmd *cobra.Command, _ []string) {
 	}
 
 	// sets up the authconfig status update controller
-	if err = (&controllers.AuthConfigStatusUpdater{
+	if err = (&controller.AuthConfigStatusUpdater{
 		Client:        statusUpdateManager.GetClient(),
 		Logger:        controllerLogger.WithName("authconfig").WithName("statusupdater"),
 		StatusReport:  statusReport,
-		LabelSelector: controllers.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
+		LabelSelector: controller.ToLabelSelector(opts.watchedAuthConfigLabelSelector),
 	}).SetupWithManager(statusUpdateManager); err != nil {
 		logger.Error(err, "failed to create controller", "controller", "authconfigstatusupdate")
 	}

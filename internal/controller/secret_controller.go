@@ -1,10 +1,10 @@
-package controllers
+package controller
 
 import (
 	"context"
 
 	"github.com/kuadrant/authorino/internal/auth"
-	controller_builder "github.com/kuadrant/authorino/internal/controllers/builder"
+	controller_builder "github.com/kuadrant/authorino/internal/controller/builder"
 	"github.com/kuadrant/authorino/internal/evaluators"
 	"github.com/kuadrant/authorino/internal/index"
 	"github.com/kuadrant/authorino/internal/log"

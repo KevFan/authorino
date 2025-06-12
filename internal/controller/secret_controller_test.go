@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"gotest.tools/assert"
 
 	"github.com/kuadrant/authorino/internal/auth"
-	controller_builder "github.com/kuadrant/authorino/internal/controllers/builder"
-	mock_controller_builder "github.com/kuadrant/authorino/internal/controllers/builder/mocks"
+	controller_builder "github.com/kuadrant/authorino/internal/controller/builder"
+	mock_controller_builder "github.com/kuadrant/authorino/internal/controller/builder/mocks"
 	"github.com/kuadrant/authorino/internal/evaluators"
 	identity_evaluators "github.com/kuadrant/authorino/internal/evaluators/identity"
 	mock_index "github.com/kuadrant/authorino/internal/index/mocks"

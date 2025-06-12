@@ -7,7 +7,7 @@ package mock_builder
 import (
 	"reflect"
 
-	"github.com/kuadrant/authorino/internal/controllers/builder"
+	"github.com/kuadrant/authorino/internal/controller/builder"
 	"go.uber.org/mock/gomock"
 	builder0 "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
