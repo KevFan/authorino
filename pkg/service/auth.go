@@ -57,19 +57,7 @@ var (
 		rpc.UNAUTHENTICATED:     envoy_type.StatusCode_Unauthorized,
 		rpc.PERMISSION_DENIED:   envoy_type.StatusCode_Forbidden,
 	}
-
-	authServerResponseStatusMetric = metrics.NewCounterMetric("auth_server_response_status", "Response status of authconfigs sent by the auth server.", "status")
-	httpServerHandledTotal         = metrics.NewCounterMetric("http_server_handled_total", "Total number of calls completed on the raw HTTP authorization server, regardless of success or failure.", "status")
-	httpServerDuration             = metrics.NewDurationMetric("http_server_handling_seconds", "Response latency (seconds) of raw HTTP authorization request that had been application-level handled by the server.")
 )
-
-func init() {
-	metrics.Register(
-		authServerResponseStatusMetric,
-		httpServerHandledTotal,
-		httpServerDuration,
-	)
-}
 
 // AuthService is the server API for the authorization service.
 type AuthService struct {
@@ -137,7 +125,7 @@ func (a *AuthService) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	metrics.ReportTimedMetric(httpServerDuration, func() {
+	metrics.ReportTimedHTTPServerDuration(func() {
 		headers := make(map[string]string)
 		for key, values := range req.Header {
 			headers[strings.ToLower(key)] = strings.Join(values, " ")
@@ -231,7 +219,7 @@ func (a *AuthService) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		closeWithStatus(respStatusCode, resp, ctx, func() {
 			_, _ = resp.Write(respBody)
 		})
-	}, "")
+	})
 }
 
 // Check performs authorization check based on the attributes associated with the incoming request,
@@ -464,7 +452,7 @@ func buildEnvoyDynamicMetadata(data map[string]interface{}) (*structpb.Struct, e
 }
 
 func reportStatusMetric(rpcStatusCode rpc.Code) {
-	metrics.ReportMetricWithStatus(authServerResponseStatusMetric, rpc.Code_name[int32(rpcStatusCode)], "")
+	metrics.ReportAuthServerResponseStatus(rpc.Code_name[int32(rpcStatusCode)])
 }
 
 func admissionReviewFromPayload(payload []byte) *v1.AdmissionReview {
@@ -481,7 +469,7 @@ func admissionReviewFromPayload(payload []byte) *v1.AdmissionReview {
 
 // Writes the response status code to the raw HTTP external authorization and cancels the context
 func closeWithStatus(respStatusCode envoy_type.StatusCode, response http.ResponseWriter, ctx gocontext.Context, closingFunc func()) {
-	metrics.ReportMetric(httpServerHandledTotal, "", respStatusCode.String())
+	metrics.ReportHTTPServerHandledTotal(respStatusCode.String())
 	if respStatusCode != envoy_type.StatusCode_OK { // avoids 'http: superfluous response.WriteHeader call'
 		response.WriteHeader(int(respStatusCode))
 	}

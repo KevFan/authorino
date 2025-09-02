@@ -45,9 +45,9 @@ import (
 	"github.com/kuadrant/authorino/pkg/utils"
 
 	envoy_auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/logr"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	otel_grpc "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -248,18 +248,18 @@ func runAuthorizationServer(cmd *cobra.Command, _ []string) {
 
 	setup(cmd, opts.log, opts.telemetry)
 
-	// load custom metric labels configuration
-	if customLabels, err := loadCustomMetricLabels(opts.customMetricLabelsFile); err != nil {
+	// load custom metric labels configuration and initialize metrics (supports hot reload)
+	customLabels, err := loadCustomMetricLabels(opts.customMetricLabelsFile)
+	if err != nil {
 		logger.Error(err, "Failed to load custom metric labels configuration")
 		os.Exit(1)
-	} else if customLabels != nil {
-		if err := metrics.InitCustomMetricLabels(customLabels); err != nil {
-			logger.Error(err, "Failed to initialize custom metric labels")
-			os.Exit(1)
-		}
 	}
-
-	service.InitializeMetrics()
+	if err := metrics.ReinitializeMetrics(customLabels); err != nil {
+		logger.Error(err, "Failed to initialize metrics with custom labels")
+		os.Exit(1)
+	}
+	// watch for changes in the custom labels file and hot-reload
+	go watchCustomMetricLabelsFile(opts.customMetricLabelsFile)
 
 	// global options
 	evaluators.EvaluatorCacheSize = opts.evaluatorCacheSize
@@ -448,7 +448,7 @@ func setupTelemetryServices(opts telemetryOptions) {
 
 func setupManager(options ctrl.Options) (ctrl.Manager, error) {
 	if options.Metrics.BindAddress != "0" {
-		options.Metrics.ExtraHandlers = map[string]http.Handler{"/server-metrics": promhttp.Handler()}
+		options.Metrics.ExtraHandlers = map[string]http.Handler{"/server-metrics": metrics.Handler}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
@@ -582,6 +582,53 @@ func listen(port int) (net.Listener, error) {
 
 func timeoutMs(timeout int) time.Duration {
 	return time.Duration(timeout) * time.Millisecond
+}
+
+// watchCustomMetricLabelsFile watches for changes and reinitializes metrics when the file is updated.
+func watchCustomMetricLabelsFile(filepath string) {
+	if filepath == "" {
+		return
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Error(err, "Failed to create file watcher for custom metric labels")
+		return
+	}
+	defer watcher.Close()
+
+	if err := watcher.Add(filepath); err != nil {
+		logger.Error(err, "Failed to watch custom metric labels file", "file", filepath)
+		return
+	}
+
+	logger.Info("watching for changes in custom metric labels file", "file", filepath)
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			// Reinitialize on write or creation events
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+				if customLabels, err := loadCustomMetricLabels(filepath); err != nil {
+					logger.Error(err, "Failed to reload custom metric labels configuration")
+				} else {
+					if err := metrics.ReinitializeMetrics(customLabels); err != nil {
+						logger.Error(err, "Failed to reinitialize metrics with new custom labels")
+					} else {
+						logger.Info("custom metric labels reloaded")
+					}
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			logger.Error(err, "Error watching custom metric labels file")
+		}
+	}
 }
 
 func printVersion(_ *cobra.Command, _ []string) {

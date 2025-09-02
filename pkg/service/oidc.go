@@ -15,18 +15,6 @@ import (
 
 const OIDCBasePath = "/"
 
-var (
-	oidcServerTotalRequestsMetric  = metrics.NewAuthConfigCounterMetric("oidc_server_requests_total", "Number of get requests received on the OIDC (Festival Wristband) server.", "wristband", "path")
-	oidcServerResponseStatusMetric = metrics.NewCounterMetric("oidc_server_response_status", "Status of HTTP response sent by the OIDC (Festival Wristband) server.", "status")
-)
-
-func init() {
-	metrics.Register(
-		oidcServerTotalRequestsMetric,
-		oidcServerResponseStatusMetric,
-	)
-}
-
 // OidcService implements an HTTP server for OpenID Connect Discovery
 type OidcService struct {
 	Index index.Index
@@ -77,7 +65,7 @@ func (o *OidcService) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
 				responseBody = err.Error()
 			}
 
-			metrics.ReportMetric(oidcServerTotalRequestsMetric, authconfigNamespace, authconfigName, wristbandEvaluatorName, pathMetric)
+			metrics.ReportOIDCRequestsTotal(authconfigNamespace, authconfigName, wristbandEvaluatorName, pathMetric)
 		} else {
 			statusCode = http.StatusNotFound
 			responseBody = "Not found"
@@ -96,7 +84,7 @@ func (o *OidcService) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
 		requestLogger.Info("response sent", "status", statusCode)
 	}
 
-	metrics.ReportMetricWithStatus(oidcServerResponseStatusMetric, strconv.Itoa(statusCode), "")
+	metrics.ReportOIDCResponseStatus(strconv.Itoa(statusCode))
 }
 
 func (o *OidcService) findWristbandIssuer(realm string, wristbandConfigName string) auth.WristbandIssuer {
